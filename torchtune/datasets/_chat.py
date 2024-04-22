@@ -104,9 +104,9 @@ def chat_dataset(
     tokenizer: Tokenizer,
     source: str,
     conversation_style: str,
-    chat_format: str,
     max_seq_len: int,
     train_on_input: bool = False,
+    chat_format: Optional[str] = None,
     **load_dataset_kwargs: Dict[str, Any],
 ) -> ChatDataset:
     """
@@ -120,10 +120,10 @@ def chat_dataset(
             (https://huggingface.co/docs/datasets/en/package_reference/loading_methods#datasets.load_dataset.path)
         conversation_style (str): string specifying expected style of conversations in the dataset
             for automatic conversion to the llama style. Supported styles are: "sharegpt"
-        chat_format (str): name of ChatFormat class used to format the messages. See the description in
-            :class:`~torchtune.datasets.ChatDataset` for more details.
         max_seq_len (int): Maximum number of tokens in the returned input and label token id lists.
         train_on_input (bool): Whether the model is trained on the prompt or not. Default is False.
+        chat_format (Optional[str]): name of ChatFormat class used to format the messages. See the description in
+            :class:`~torchtune.datasets.ChatDataset` for more details.
         **load_dataset_kwargs (Dict[str, Any]): additional keyword arguments to pass to `load_dataset`.
 
     Returns:
@@ -137,11 +137,13 @@ def chat_dataset(
     else:
         raise ValueError(f"Unsupported conversation style: {conversation_style}")
 
+    chat_format = _get_chat_format(chat_format) if chat_format else None
+
     return ChatDataset(
         tokenizer=tokenizer,
         source=source,
         convert_to_messages=convert_to_messages,
-        chat_format=_get_chat_format(chat_format),
+        chat_format=chat_format,
         max_seq_len=max_seq_len,
         train_on_input=train_on_input,
         **load_dataset_kwargs,
