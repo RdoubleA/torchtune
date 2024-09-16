@@ -10,15 +10,15 @@ def main():
         {"Question": "What was the last US state to reintroduce alcohol after prohibition?", "Answer": "Utah"},
     ]
 
-    filename = "data/my_data.csv"
+    filepath = os.path.join(os.path.dirname(os.getcwd()), "data")
 
+    if not os.path.exists(filepath):
+        os.mkdir(filepath)
 
     fieldnames = data[0].keys()
 
-    os.mkdir("data")
-
     # Write data to CSV file
-    with open(filename, 'w', newline='') as file:
+    with open(os.path.join(filepath, "my_data.csv"), 'w', newline='') as file:
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         
         # Write the header
@@ -27,7 +27,7 @@ def main():
         # Write the data
         writer.writerows(data)
 
-    print(f"Data has been written to {filename}")
+    print(f"Data has been written to {filepath}")
 
 if __name__ == "__main__":
     main()

@@ -15,6 +15,18 @@ from torchtune.data import CROSS_ENTROPY_IGNORE_IDX
 from torchtune.modules.tokenizers import ModelTokenizer
 from torchtune.modules.transforms import Transform
 
+from typing import Any, Dict, List, Mapping, Optional, Union
+
+import numpy as np
+from datasets import load_dataset
+from torch.utils.data import Dataset
+from torchtune.data import (
+    CROSS_ENTROPY_IGNORE_IDX,
+    ChosenRejectedToMessages,
+)
+from torchtune.datasets._packed import PackedDataset
+from torchtune.modules.tokenizers import ModelTokenizer
+
 
 class PreferenceDataset(Dataset):
     """
@@ -82,7 +94,7 @@ class PreferenceDataset(Dataset):
         tokenizer (ModelTokenizer): Tokenizer used by the model that implements the ``tokenize_messages`` method.
             Since PreferenceDataset only supports text data, it requires a
             :class:`~torchtune.modules.tokenizers.ModelTokenizer` instead of the ``model_transform`` in
-            :class:`~torchtune.datasets.SFTDataset`.
+            :class:`~torchtune.datasets.PreferenceDataset`.
         **load_dataset_kwargs (Dict[str, Any]): additional keyword arguments to pass to ``load_dataset``. See Hugging
             Face's `API ref <https://huggingface.co/docs/datasets/en/package_reference/loading_methods#datasets.load_dataset>`_
             for more details.
@@ -137,3 +149,87 @@ class PreferenceDataset(Dataset):
         )
 
         return tokenized_dict
+
+def preference_dataset(
+    tokenizer: ModelTokenizer,
+    *,
+    source: str,
+    column_map: Optional[Dict[str, str]] = None,
+    train_on_input: bool = False,
+    new_system_prompt: Optional[str] = None,
+    packed: bool = False,
+    **load_dataset_kwargs: Dict[str, Any],
+) -> Union[PreferenceDataset, PackedDataset]:
+    """
+    Configure a custom dataset with chosen and rejected conversations.
+
+    This builder function can be used to configure a custom preference dataset directly from the yaml config
+    as an alternative to :class:`~torchtune.datasets.PreferenceDataset`, as it is made to be config friendly.
+
+    The dataset should follow this format:
+
+    .. code-block:: text
+
+        |  chosen                                |  rejected                              |
+        |----------------------------------------|----------------------------------------|
+        | [{"role": "user", "content": Q1},      | [{"role": "user", "content": Q1},      |
+        |  {"role": "assistant", "content": A1}] |  {"role": "assistant", "content": A2}] |
+
+    If your column names are different, you can use the ``column_map`` parameter to change
+    the expected column names. For example, if your dataset has columns ``"good"`` and
+    ``"bad"`` you can use::
+
+        column_map = {"chosen": "good", "rejected": "bad"}
+
+    Masking of the prompt during training is controlled by the ``train_on_input`` flag, which is
+    set to ``False`` by default
+    - If ``train_on_input`` is True, the prompt is used during training and
+    contributes to the loss.
+    - If ``train_on_input`` is False, the prompt is masked out (tokens replaced with -100)
+
+    Args:
+        tokenizer (ModelTokenizer): Tokenizer used by the model that implements the ``tokenize_messages`` method.
+        source (str): path to dataset repository on Hugging Face. For local datasets,
+            define source as the data file type (e.g. "json", "csv", "text"), pass
+            in the filepath in ``data_files``, and set ``split="train"``. See `Hugging Face's
+            <https://huggingface.co/docs/datasets/en/package_reference/loading_methods#datasets.load_dataset.path>`_
+            ``load_dataset`` for more details.
+        column_map (Optional[Dict[str, str]]): a mapping to change the expected "chosen"
+            and "rejected" column names to the actual column names in the dataset. Keys should be "chosen" and
+            "rejected" and values should be the actual column names. Default is None, keeping the default "chosen"
+            and "rejected" column names.
+        train_on_input (bool): Whether the model is trained on the user prompt or not.
+            Default is False.
+        new_system_prompt (Optional[str]): if specified, prepend a system message. This can
+            serve as instructions to guide the model response. Default is None.
+        packed (bool): Whether or not to pack the dataset to tokenizer's ``max_seq_len`` prior to training. Default is False.
+        **load_dataset_kwargs (Dict[str, Any]): additional keyword arguments to pass to ``load_dataset``,
+            such as ``data_files`` or ``split``.
+
+
+    Returns:
+        Union[PreferenceDataset, PackedDataset]: the configured :class:`~torchtune.datasets.PreferenceDataset`
+            or :class:`~torchtune.datasets.PackedDataset` if ``packed=True``
+
+    Raises:
+        ValueError: If ``packed=True`` and ``tokenizer.max_seq_len`` is not set.
+    """
+    message_transform = ChosenRejectedToMessages(
+        train_on_input=train_on_input,
+        column_map=column_map,
+        new_system_prompt=new_system_prompt,
+    )
+
+    ds = PreferenceDataset(
+        source=source,
+        message_transform=message_transform,
+        tokenizer=tokenizer,
+        **load_dataset_kwargs,
+    )
+    if packed:
+        if tokenizer.max_seq_len is None:
+            raise ValueError(
+                "PackedDataset requires a max_seq_len to be set on the tokenizer."
+            )
+        return PackedDataset(ds, max_seq_len=tokenizer.max_seq_len)
+    return ds
